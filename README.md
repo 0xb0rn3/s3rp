@@ -605,7 +605,5 @@ If you're unsure whether you have authorization, **don't do it.**
 ---
 
 **Repository:** github.com/0xb0rn3/s3rp  
-**Contact:** [Your contact method]  
-**License:** [Your chosen license]
 
 *Built with curiosity, refined with experience, shared with purpose.*
