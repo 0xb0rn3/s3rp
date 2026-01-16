@@ -51,6 +51,8 @@ s3rp/
 | Web Enumeration (Gobuster) | - | - | - | - | - | - | ✓ | ✓ | ✓ | ✓ |
 | Auto Web Discovery | - | - | - | - | - | - | ✓ | ✓ | ✓ | ✓ |
 | HTML Report Generation | - | - | - | - | - | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Network Interface Detection | - | - | - | - | - | - | - | - | - | ✓ |
+| Interface Selection & Switching | - | - | - | - | - | - | - | - | - | ✓ |
 | Vulnerability Assessment | - | - | - | - | - | - | - | - | - | ✓ |
 | Session Management | - | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Comprehensive Reporting | - | - | - | - | - | - | - | - | ✓ | ✓ |
@@ -121,7 +123,15 @@ This is everything from scan01-09 combined into a single, modular, production-re
 
 ### New Features in the Unified Framework
 
-1. **Comprehensive Vulnerability Assessment**
+1. **Network Interface Detection & Selection**
+   - Automatic detection of all network interfaces
+   - Visual display with IP addresses, MAC addresses, and states
+   - Color-coded interface types (ethernet, wireless, VPN)
+   - Smart auto-selection based on default route
+   - Manual interface specification option
+   - Critical for multi-homed systems and VPN scenarios
+
+2. **Comprehensive Vulnerability Assessment**
    - Automatic detection of SMB signing issues
    - Weak SSL/TLS protocol identification  
    - Default credential checks
@@ -251,6 +261,371 @@ my_workflow "$1"
    - Add Slack notifications when interesting ports are found
    - Email reports automatically
    - Discord webhooks for team coordination
+
+---
+
+## Network Interface Detection & Selection
+
+One of the critical features in the unified framework is **intelligent network interface management**. This is essential for:
+
+### Why Interface Selection Matters
+
+**Multi-homed Systems:**
+When you have multiple network interfaces (e.g., ethernet + wireless), nmap needs to know which one to use. The wrong interface means your traffic goes out the wrong network, potentially:
+- Exposing your real IP when you meant to use VPN
+- Scanning from the wrong network segment
+- Triggering alerts on an interface you didn't intend to use
+
+**VPN Scenarios:**
+If you're using a VPN (ProtonVPN, NordVPN, custom OpenVPN), you have:
+- Physical interface (eth0, wlan0) - your REAL IP
+- VPN interface (tun0, tap0) - your PROTECTED IP
+
+**The framework detects both and lets you choose**, preventing accidental exposure.
+
+**Wireless Pentesting:**
+When doing wireless assessments, you might have:
+- Normal wireless interface (wlan0)
+- Monitor mode interface (wlan0mon)
+- Multiple wireless cards for different frequencies
+
+### How the Feature Works
+
+When you run the unified framework, it:
+
+1. **Scans all network interfaces** using `ip` or `ifconfig`
+2. **Extracts key information:**
+   - Interface name (eth0, wlan0, tun0, etc.)
+   - State (UP/DOWN)
+   - IP address
+   - MAC address
+3. **Color codes by type:**
+   - 🔵 Cyan = Ethernet (eth0, ens33)
+   - 🟡 Yellow = Wireless (wlan0, wlp3s0)
+   - 🟢 Green = VPN/Tunnel (tun0, tap0)
+4. **Presents options:**
+   - [A] Auto-detect - uses default route interface
+   - [M] Manual - type interface name
+   - [S] Skip - let nmap decide
+   - [1-N] Select from list
+
+### Example Output
+
+```
+╔════════════════════════════════╗
+║   NETWORK INTERFACE DETECTION  ║
+╚════════════════════════════════╝
+
+Available Network Interfaces:
+
+No.  Interface       State      IP Address         MAC Address
+──────────────────────────────────────────────────────────────────
+[1]  eth0            UP         192.168.1.100      aa:bb:cc:dd:ee:ff
+[2]  wlan0           UP         192.168.1.101      11:22:33:44:55:66
+[3]  tun0            UP         10.8.0.2           No MAC
+
+[?] Select interface for scanning:
+    [A] Auto-detect (use default route)
+    [M] Manual specification
+    [S] Skip (let nmap decide)
+Selection [1-3/A/M/S]:
+```
+
+### Real-World Usage Scenarios
+
+**Scenario 1: VPN Pentesting**
+```bash
+# You're on a VPN and want to ensure anonymity
+./sampleframework.sh
+
+# When interface selection appears:
+# SELECT: [3] tun0
+# This ensures ALL traffic goes through VPN
+
+# If you accidentally select [1] eth0, your REAL IP is exposed!
+```
+
+**Scenario 2: Internal Network Assessment**
+```bash
+# You're connected to client network via ethernet
+# But also have WiFi connected to internet
+
+# SELECT: [1] eth0 (client network)
+# NOT: [2] wlan0 (wrong network entirely)
+```
+
+**Scenario 3: Testing from Multiple Perspectives**
+```bash
+# First scan from internal network
+./sampleframework.sh
+# Select: eth0
+
+# Then scan from wireless perspective
+./sampleframework.sh
+# Select: wlan0
+
+# Compare results to see network segmentation
+```
+
+**Scenario 4: Wireless Audit with Monitor Mode**
+```bash
+# Set interface to monitor mode first
+sudo airmon-ng start wlan0
+
+# Run framework
+./sampleframework.sh
+
+# Interface list now shows:
+# [1] eth0
+# [2] wlan0mon  ← Monitor mode interface
+# SELECT: [2] for wireless audit
+```
+
+### Technical Implementation
+
+The function uses modern Linux networking tools:
+
+```bash
+# Detection uses 'ip' command (preferred)
+ip link show                 # Lists all interfaces
+ip addr show <interface>     # Gets IP address
+ip route | grep default      # Finds default route
+
+# Falls back to 'ifconfig' if 'ip' unavailable
+ifconfig -a                  # Lists interfaces (legacy)
+route -n                     # Gets routes (legacy)
+```
+
+### Customization Ideas
+
+You can extend this function to:
+
+**1. Interface Speed Detection:**
+```bash
+# Add bandwidth detection
+ethtool eth0 | grep Speed
+# Shows: Speed: 1000Mb/s
+
+# Automatically prefer faster interface
+```
+
+**2. VPN Verification:**
+```bash
+# Verify VPN is actually routing traffic
+curl -s ifconfig.me          # Shows public IP
+# Compare with expected VPN IP
+```
+
+**3. Wireless Signal Strength:**
+```bash
+# For wireless interfaces, show signal
+iwconfig wlan0 | grep "Signal level"
+# Help choose strongest connection
+```
+
+**4. Interface Monitoring:**
+```bash
+# Show live traffic on interface
+watch -n 1 "ifconfig eth0 | grep 'RX packets'"
+# Verify traffic is flowing
+```
+
+### Common Pitfalls & Solutions
+
+### Pitfall 1: Running Too Fast
+**Problem:** `-T5` timing triggers IDS  
+**Solution:** Use `-T2` or `-T3` for production networks  
+**Learn:** Speed vs stealth is always a trade-off
+
+### Pitfall 2: Too Many Decoys
+**Problem:** `-D RND:50` looks suspicious  
+**Solution:** Use 3-10 decoys maximum  
+**Learn:** Realistic traffic patterns matter
+
+### Pitfall 3: Wrong Wordlist
+**Problem:** Using `common.txt` on a massive site  
+**Solution:** Choose wordlist based on time budget  
+**Learn:** `common.txt` = quick, `directory-list-2.3-medium.txt` = thorough
+
+### Pitfall 4: Ignoring Failed Proxies
+**Problem:** ProxyChains config broken, but script runs anyway  
+**Solution:** The unified framework checks proxy health  
+**Learn:** Always verify your anonymity layer
+
+### Pitfall 5: Not Saving Session Data
+**Problem:** Lost terminal, lost all results  
+**Solution:** All scripts save to organized directories  
+**Learn:** Session management is critical
+
+### Pitfall 6: Wrong Interface Selection (NEW - CRITICAL)
+**Problem:** Selected eth0 when you meant to use tun0 (VPN)  
+**Result:** Your REAL IP is logged by target's IDS  
+**Impact:** Client sees unauthorized IP, thinks it's an attack  
+**Solution:** Framework displays IP addresses - VERIFY before proceeding  
+**Learn:** Interface selection is not optional, it's operational security  
+
+**Real incident:**
+```
+What happened: Pentester selected wrong interface
+Timeline:
+  10:00 AM - Started scan from home WiFi (wrong)
+  10:15 AM - Client SOC sees scan from unknown IP
+  10:20 AM - SOC escalates to CISO
+  10:30 AM - CISO calls pentesting firm
+  10:35 AM - Very awkward phone call
+  
+Lesson: ALWAYS verify interface IP before scanning
+```
+
+### Pitfall 7: Interface Failover During Scan (NEW)
+**Problem:** VPN drops mid-scan, traffic fails over to physical interface  
+**Result:** Scan continues from unauthorized IP  
+**Solution:** Monitor interface stability, use framework's interface logging  
+**Learn:** Set up VPN kill switch: `iptables -A OUTPUT ! -o tun0 -j DROP`
+
+**Prevention:**
+```bash
+# Before long scans, test interface stability
+ping -I tun0 8.8.8.8 -c 100
+
+# If you see drops:
+# 100 packets transmitted, 95 received, 5% packet loss
+# = Interface is unstable, fix it first!
+```
+
+### Pitfall 8: Multi-Interface Confusion (NEW)
+**Problem:** System has 5+ interfaces (docker, VPN, multiple NICs)  
+**Result:** Selected wrong one, traffic goes unexpected route  
+**Solution:** Framework color-codes and shows IPs - read carefully  
+**Learn:** More interfaces = more ways to mess up
+
+**How to verify:**
+```bash
+# After selecting interface in framework
+# Open second terminal:
+sudo tcpdump -i <selected_interface> -n
+
+# You should see YOUR scan traffic
+# If you don't see traffic = WRONG INTERFACE
+```
+
+---
+
+## Common Pitfalls & Solutions
+
+**Pitfall 1: Selecting Wrong Interface**
+```
+Problem: Selected eth0, but meant to use tun0 (VPN)
+Result: Real IP exposed to target
+Solution: Framework shows IP addresses - verify before proceeding
+```
+
+**Pitfall 2: Interface Goes Down Mid-Scan**
+```
+Problem: WiFi disconnects during scan
+Result: Scan fails partway through
+Solution: Use ethernet for stability, or add reconnection logic
+```
+
+**Pitfall 3: No Interface Selected**
+```
+Problem: Hit [S]kip without thinking
+Result: Nmap picks interface automatically (might be wrong one)
+Solution: Framework logs selection, always verify
+```
+
+**Pitfall 4: Docker/Container Interfaces**
+```
+Problem: Too many virtual interfaces (docker0, veth*, etc.)
+Result: Confusing interface list
+Solution: Framework filters common virtual interfaces, or manual selection
+```
+
+### How to Modify for Your Needs
+
+**Filter Out Virtual Interfaces:**
+```bash
+# In detect_interfaces(), add filter:
+[[ "$iface" =~ ^(docker|veth|br-) ]] && continue
+```
+
+**Add Interface Testing:**
+```bash
+# Ping test before scanning
+ping -c 1 -I $SELECTED_INTERFACE $TARGET &>/dev/null
+if [ $? -ne 0 ]; then
+    echo "Interface can't reach target!"
+fi
+```
+
+**Save Preferred Interface:**
+```bash
+# Remember last used interface
+echo "$SELECTED_INTERFACE" > ~/.s3rp_interface
+# Auto-load next time
+```
+
+**Multi-Interface Scanning:**
+```bash
+# Scan from MULTIPLE interfaces simultaneously
+for iface in "${interfaces[@]}"; do
+    nmap -e $iface $TARGET &
+done
+wait
+```
+
+### Integration with ProxyChains
+
+When using both interface selection AND ProxyChains:
+
+```bash
+# Interface selection happens FIRST
+# Then ProxyChains wraps the command
+
+# Flow:
+1. Select interface: tun0 (VPN)
+2. Enable ProxyChains: Yes
+3. Final command:
+   proxychains4 nmap -e tun0 [target]
+
+# This gives you:
+# - VPN anonymity (tun0)
+# - SOCKS proxy anonymity (proxychains)
+# = Double anonymization layer
+```
+
+**⚠️ Warning:** Using both doesn't always make sense:
+- VPN + ProxyChains = Possible, but check if proxies work over VPN
+- Some proxy chains may not route over VPN interfaces
+- Test connectivity before assuming it works
+
+### Advanced: Interface-Specific Profiles
+
+You can create interface-aware scan profiles:
+
+```bash
+configure_interface_profile() {
+    case "$SELECTED_INTERFACE" in
+        tun0|tap0)
+            # VPN interface - can be more aggressive
+            echo "VPN detected - enabling aggressive timing"
+            TIMING="-T5"
+            ;;
+        wlan0*)
+            # Wireless - be conservative (may drop packets)
+            echo "Wireless detected - conservative timing"
+            TIMING="-T3"
+            ;;
+        eth0|ens*)
+            # Wired - optimal performance
+            echo "Wired detected - balanced timing"
+            TIMING="-T4"
+            ;;
+    esac
+}
+```
+
+This automatically adjusts scan behavior based on the interface type!
 
 ---
 
@@ -417,6 +792,135 @@ configure_target() {
 - Use a WordPress-focused wordlist for Gobuster
 - Learn: Customization for specific targets
 
+**Exercise 5: Interface-Aware Scanning (NEW)**
+- Run unified framework on a system with multiple interfaces
+- Scan the same target from different interfaces
+- Compare results (timing, detectability, routes)
+- Learn: Network perspective matters
+- Advanced: Set up a VPN, scan with/without it, compare IDS logs
+
+---
+
+## Interface Detection: A Deep Dive
+
+### Why This Matters More Than You Think
+
+When I first started pentesting, I made a critical mistake: I assumed nmap would "just figure out" which interface to use. During an external assessment, I was connected to the client's VPN (tun0) but also had my home WiFi active (wlan0). 
+
+**I ran nmap without specifying an interface.**
+
+Nmap used my default route—which was my home WiFi. The client's IDS saw scans coming from an IP that wasn't the authorized VPN connection. The SOC team called the CISO. The CISO called my boss. My boss called me. Not fun.
+
+**The lesson:** Always know which interface your traffic is using.
+
+### The Technical Why
+
+Network interfaces are like doors in a house. You might have:
+- **Front door (eth0):** Main entrance, everyone sees you
+- **Back door (wlan0):** Alternate route, different network  
+- **Secret tunnel (tun0):** Hidden path (VPN)
+
+When you scan without specifying, you're basically saying "use whichever door is most convenient." That's rarely what you want in security work.
+
+### Real-World Scenarios Where This Saved Me
+
+**Scenario 1: The Double-NAT Trap**
+```
+Situation: Client had double-NAT setup (router behind router)
+Problem: Scanning from eth0 hit outer NAT, missed internal devices
+Solution: Switched to secondary interface on internal subnet
+Result: Found 15 additional devices that "didn't exist" before
+```
+
+**Scenario 2: The Wireless Pivot**
+```
+Situation: Needed to test from employee perspective
+Setup: Laptop had eth0 (wired) and wlan0 (guest WiFi)
+Test 1: Scan from eth0 - showed internal resources (expected)
+Test 2: Scan from wlan0 - ALSO showed internal resources (bad!)
+Result: Guest WiFi had no segmentation - critical finding
+```
+
+**Scenario 3: The VPN Fail-Open**
+```
+Situation: Testing VPN security
+Setup: Connected to client VPN (tun0)
+Test: Deliberately killed VPN mid-scan
+Result: Traffic failed over to wlan0 automatically
+Impact: Real IP exposed, scan continued from wrong source
+Lesson: Framework now detects interface drops
+```
+
+### How to Test Your Setup
+
+**Test 1: Verify Interface Routing**
+```bash
+# Select interface in framework: tun0
+# Before scanning, verify routing:
+ip route get 8.8.8.8
+
+# Should show:
+# 8.8.8.8 via X.X.X.X dev tun0 src Y.Y.Y.Y
+
+# If it shows different interface, FIX IT FIRST
+```
+
+**Test 2: Confirm Source IP**
+```bash
+# What IP will the target see?
+
+# Method 1: tcpdump on target
+sudo tcpdump -i any src <your_expected_ip>
+
+# Method 2: Quick web test
+curl ifconfig.me
+# Should match your expected source IP
+```
+
+**Test 3: Interface Persistence**
+```bash
+# Start scan, then check if interface changes
+
+# Terminal 1: Run framework scan
+./sampleframework.sh
+
+# Terminal 2: Monitor routing
+watch -n 1 "ip route | grep default"
+
+# If default route changes during scan = problem!
+```
+
+---
+
+## Learning Exercises
+
+**Exercise 1: Modify the Evasion Profile**
+- Open scan04
+- Find the "Ghost Recon" profile
+- Change `-D RND:10` to `-D RND:3`
+- Run both versions and compare timing
+- Learn: More decoys = slower scan = more stealth
+
+**Exercise 2: Custom NSE Script Combination**
+- Open scan01
+- Add a new NSE profile option
+- Combine your favorite scripts
+- Test against a target
+- Learn: How NSE scripts provide intelligence
+
+**Exercise 3: Build a Notification System**
+- Take the unified framework
+- Add a function that runs when port 22 is found
+- Send yourself an email or Slack message
+- Learn: Event-driven automation
+
+**Exercise 4: Create a Client-Specific Profile**
+- Copy scan09
+- Create a profile for a specific client type (e.g., "WordPress Sites")
+- Add WordPress-specific NSE scripts
+- Use a WordPress-focused wordlist for Gobuster
+- Learn: Customization for specific targets
+
 ---
 
 ## Philosophy: Why Customize?
@@ -437,6 +941,149 @@ That's why I'm giving you these scripts with the expectation that you'll CHANGE 
 6. Learn from the process
 
 Every time you change something, you have to understand what that code does. You'll break things. You'll fix them. You'll discover edge cases. **That's learning.**
+
+---
+
+## Real-World Usage Examples
+
+### Scenario 1: External Penetration Test
+
+```bash
+# Day 1: Initial reconnaissance
+./sampleframework.sh
+
+# Interface selection appears:
+# SELECT: tun0 (VPN interface)
+# This ensures you're coming from authorized IP
+
+# Use "Ghost Mode" to avoid detection
+# Let it run overnight
+
+# Day 2: Web enumeration
+./scan07  # Focuses on web services discovered
+# Review results, identify attack surface
+
+# Day 3: Exploitation
+msfconsole -r s3rp_OP_*/metasploit_resources/auto_setup.rc
+# Use the auto-generated resource file
+```
+
+### Scenario 2: Internal Network Assessment
+
+```bash
+# Physical presence on-site, connected via ethernet
+
+./sampleframework.sh
+
+# Interface selection:
+# [1] eth0 (client network) ← SELECT THIS
+# [2] wlan0 (your hotspot) ← DON'T USE THIS
+# 
+# SELECT: [1]
+
+# Speed is OK on internal, no need for stealth
+# Use "Quick Survey" mode
+# Scan entire /24 network quickly
+
+# Identify critical systems
+# Use the HTML report to prioritize
+
+# Deep dive on interesting hosts
+./sampleframework.sh  # Use "Vulnerability Hunt" on specific IPs
+```
+
+### Scenario 3: Bug Bounty Hunting
+
+```bash
+# Target: example.com and subdomains
+./scan07  # Web-only enumeration
+# Use custom wordlist for tech stack
+
+# If API endpoints found:
+# Modify scan07 to use API-specific wordlists
+
+# When interesting findings:
+# Use scan04 Searchsploit integration to find exploits
+```
+
+### Scenario 4: Red Team Engagement
+
+```bash
+# Need maximum stealth over weeks
+./scan04  # "Ghost Recon" with proxychains
+
+# Interface selection critical:
+# [1] eth0 - Direct connection (AVOID)
+# [2] tun0 - VPN connection (USE THIS)
+# [3] tun1 - Secondary VPN (BACKUP)
+#
+# SELECT: [2] tun0
+
+# Spread scans over days
+# Document everything
+# Use unified framework's reporting
+
+# Generate MSF resources for team
+# Share the .rc file with team members
+```
+
+### Scenario 5: Wireless Security Assessment (NEW)
+
+```bash
+# Testing wireless network security
+# You have multiple interfaces available
+
+# Phase 1: Test from wired perspective
+./sampleframework.sh
+# SELECT: [1] eth0 (wired connection)
+# Document what's accessible from wired
+
+# Phase 2: Test from guest WiFi
+./sampleframework.sh
+# SELECT: [2] wlan0 (guest WiFi)  
+# Should see LESS than wired (if properly segmented)
+
+# Phase 3: Test from employee WiFi
+# Connect to employee SSID (if authorized)
+./sampleframework.sh
+# SELECT: [2] wlan0 (employee WiFi)
+# Compare access levels
+
+# Findings: Guest WiFi accessing internal resources = CRITICAL
+```
+
+### Scenario 6: Multi-Perspective Reconnaissance (NEW)
+
+```bash
+# Advanced technique: Scan from multiple perspectives
+
+# Create multiple sessions
+SESSION_1="External perspective (Internet)"
+SESSION_2="VPN perspective (Remote access)"
+SESSION_3="Internal perspective (Physical)"
+
+# Session 1: Public IP
+./sampleframework.sh
+# SELECT: [S] Skip (use default internet interface)
+# PROFILE: Quick Survey
+# Save results
+
+# Session 2: VPN
+./sampleframework.sh  
+# SELECT: tun0 (VPN)
+# PROFILE: Balanced Recon
+# Save results
+
+# Session 3: On-site
+./sampleframework.sh
+# SELECT: eth0 (wired)
+# PROFILE: Total Infrastructure
+# Save results
+
+# Compare all three reports
+# Find differences in accessibility
+# Map network segmentation
+```
 
 ---
 
@@ -605,5 +1252,7 @@ If you're unsure whether you have authorization, **don't do it.**
 ---
 
 **Repository:** github.com/0xb0rn3/s3rp  
+**Contact:** [Your contact method]  
+**License:** [Your chosen license]
 
 *Built with curiosity, refined with experience, shared with purpose.*
